@@ -1,0 +1,164 @@
+{% extends 'layout.html' %}
+
+{% block title %}Login - MindfulBot{% endblock %}
+
+{% block head_extra %}
+<style>
+    #firebaseui-auth-container {
+        margin-top: 50px;
+        margin-bottom: 50px;
+    }
+    .login-container {
+        text-align: center;
+    }
+</style>
+<!-- FirebaseUI CSS -->
+<link type="text/css" rel="stylesheet" href="https://www.gstatic.com/firebasejs/ui/4.8.1/firebase-ui-auth.css" />
+{% endblock %}
+
+{% block content %}
+<div class="login-container">
+    <h2>Welcome to MindfulBot</h2>
+    <p>Please sign in to continue.</p>
+
+    <!-- FirebaseUI Widget Container -->
+    <div id="firebaseui-auth-container"></div>
+    <div id="loader" style="display: none; text-align: center; padding: 20px;">Loading...</div>
+    <div id="error-message" style="color: red; margin-top: 10px; display: none;"></div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }} {# Include scripts from layout.html #}
+<!-- FirebaseUI JS -->
+<script src="https://www.gstatic.com/firebasejs/ui/4.8.1/firebase-ui-auth.js"></script>
+
+<script>
+    // Firebase configuration passed from Flask
+    const firebaseConfig = {{ firebase_config | tojson }};
+
+    // Check if config is present
+    if (!firebaseConfig || !firebaseConfig.apiKey) {
+        console.error('Firebase configuration is missing or incomplete.');
+        document.getElementById('error-message').innerText = 'Application configuration error. Please contact support.';
+        document.getElementById('error-message').style.display = 'block';
+    } else {
+        // Initialize Firebase
+        try {
+            firebase.initializeApp(firebaseConfig);
+            console.log("Firebase initialized.");
+        } catch (e) {
+            console.error("Error initializing Firebase:", e);
+            document.getElementById('error-message').innerText = 'Could not initialize authentication service.';
+            document.getElementById('error-message').style.display = 'block';
+        }
+
+        // FirebaseUI configuration
+        const uiConfig = {
+            callbacks: {
+                signInSuccessWithAuthResult: function(authResult, redirectUrl) {
+                    // User successfully signed in.
+                    console.log('Sign-in successful:', authResult);
+                    document.getElementById('firebaseui-auth-container').style.display = 'none';
+                    document.getElementById('loader').style.display = 'block'; // Show loader
+
+                    // Get the Firebase ID token.
+                    authResult.user.getIdToken().then(function(idToken) {
+                        console.log("ID Token obtained:", idToken ? idToken.substring(0, 20) + '...' : 'null');
+                        // Send token to backend to establish server-side session
+                        fetch('{{ url_for("auth_success") }}', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                idToken: idToken,
+                                email: authResult.user.email,
+                                displayName: authResult.user.displayName
+                             })
+                        })
+                        .then(response => {
+                             if (!response.ok) {
+                                 throw new Error(`Server responded with status: ${response.status}`);
+                             }
+                             return response.json();
+                         })
+                        .then(data => {
+                            console.log('Backend session response:', data);
+                            if(data.status === 'success' && data.redirect_url) {
+                                window.location.assign(data.redirect_url); // Redirect on success
+                            } else {
+                                throw new Error(data.error || 'Backend session establishment failed.');
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error sending token to backend:', error);
+                            document.getElementById('loader').style.display = 'none';
+                            document.getElementById('error-message').innerText = 'Login failed: Could not verify session with server. '; //+ error.message;
+                            document.getElementById('error-message').style.display = 'block';
+                            // Optionally sign the user out if server session fails
+                             firebase.auth().signOut();
+                        });
+                    }).catch(function(error) {
+                         console.error('Error getting ID token:', error);
+                         document.getElementById('loader').style.display = 'none';
+                         document.getElementById('error-message').innerText = 'Login failed: Could not retrieve authentication token.';
+                         document.getElementById('error-message').style.display = 'block';
+                         // Don't redirect, let user handle error.
+                    });
+
+                    // Return false to prevent redirect automatically handled by FirebaseUI
+                    return false;
+                },
+                uiShown: function() {
+                    // The widget is rendered. Hide the loader.
+                    document.getElementById('loader').style.display = 'none';
+                    console.log("FirebaseUI shown.");
+                },
+                signInFailure: function(error) {
+                    // Handle sign-in errors (e.g., user closed popup)
+                    console.error('FirebaseUI Sign-in error:', error);
+                    // Display a more user-friendly error message if possible
+                    let message = 'Login failed. Please try again.';
+                    if (error.code !== 'firebaseui/anonymous-upgrade-merge-conflict') {
+                       // Avoid showing generic message for merge conflicts if using anonymous auth upgrade
+                       document.getElementById('error-message').innerText = message;
+                       document.getElementById('error-message').style.display = 'block';
+                    }
+                }
+            },
+            // Will use redirect mode for persistence.
+            // signInFlow: 'popup', // Can use 'popup' or 'redirect'
+             signInFlow: 'redirect',
+            signInOptions: [
+                // List of OAuth providers supported.
+                firebase.auth.GoogleAuthProvider.PROVIDER_ID,
+                firebase.auth.EmailAuthProvider.PROVIDER_ID
+                // Add other providers like Facebook, Twitter, GitHub, etc.
+                // firebase.auth.FacebookAuthProvider.PROVIDER_ID,
+                // firebase.auth.TwitterAuthProvider.PROVIDER_ID,
+                // firebase.auth.GithubAuthProvider.PROVIDER_ID,
+                // firebase.auth.PhoneAuthProvider.PROVIDER_ID
+            ],
+            // Terms of service URL.
+            // tosUrl: '<your-tos-url>',
+            // Privacy policy URL.
+            // privacyPolicyUrl: '<your-privacy-policy-url>'
+        };
+
+        // Initialize the FirebaseUI Widget using Firebase.
+        var ui = new firebaseui.auth.AuthUI(firebase.auth());
+        // The start method will wait until the DOM is loaded.
+        // Check if the container exists before starting UI
+        const authContainer = document.getElementById('firebaseui-auth-container');
+         if (authContainer) {
+            ui.start('#firebaseui-auth-container', uiConfig);
+         } else {
+            console.error('FirebaseUI container not found.');
+            document.getElementById('error-message').innerText = 'UI element missing. Cannot display login options.';
+            document.getElementById('error-message').style.display = 'block';
+         }
+    }
+</script>
+{% endblock %}

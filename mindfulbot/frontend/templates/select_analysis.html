@@ -1,0 +1,63 @@
+{% extends 'layout.html' %}
+
+{% block title %}Select Analysis - MindfulBot{% endblock %}
+
+{% block head_extra %}
+<style>
+    .analysis-options {
+        list-style: none;
+        padding: 0;
+        margin-top: 20px;
+        display: flex; /* Use flexbox for layout */
+        flex-wrap: wrap; /* Allow items to wrap */
+        gap: 15px; /* Space between items */
+        justify-content: center; /* Center items */
+    }
+    .analysis-options li {
+        margin-bottom: 10px;
+    }
+    .analysis-options a {
+        display: block;
+        padding: 15px 25px;
+        /* background-color: #e7f3fe; */
+        /* border: 1px solid #b3d7ff; */
+        background-color: #5b9bd5; /* Use button color */
+        color: white; /* Use button text color */
+        border-radius: 5px;
+        text-decoration: none;
+        text-align: center;
+        /* color: #333; */
+        transition: background-color 0.3s ease;
+        font-size: 1.1em;
+    }
+    .analysis-options a:hover {
+        /* background-color: #d0e8ff; */
+        background-color: #4a8cc7; /* Use button hover color */
+        text-decoration: none;
+    }
+    .welcome-message {
+        text-align: center;
+        margin-bottom: 30px;
+        font-size: 1.1em;
+        color: #555;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="welcome-message">
+    <p>Hello, {{ user_email }}!</p>
+    <p>What area would you like to explore today?</p>
+</div>
+
+<ul class="analysis-options">
+    {% for analysis in analysis_types %}
+    <li>
+        <a href="{{ url_for('chat', analysis_type=analysis) }}">{{ analysis }}</a>
+    </li>
+    {% else %}
+    <li>No analysis types available at the moment.</li>
+    {% endfor %}
+</ul>
+
+{% endblock %}

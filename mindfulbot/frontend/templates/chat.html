@@ -1,0 +1,224 @@
+{% extends 'layout.html' %}
+
+{% block title %}{{ analysis_type }} Chat - MindfulBot{% endblock %}
+
+{% block head_extra %}
+<style>
+    #chat-area {
+        height: 400px;
+        overflow-y: auto;
+        border: 1px solid #ccc;
+        padding: 15px;
+        margin-bottom: 15px;
+        background-color: #f9f9f9;
+        border-radius: 5px;
+    }
+    .message {
+        margin-bottom: 10px;
+        padding: 8px 12px;
+        border-radius: 15px;
+        max-width: 70%;
+        clear: both;
+        word-wrap: break-word;
+    }
+    .message.bot {
+        background-color: #e1f0ff;
+        color: #333;
+        float: left;
+        border-bottom-left-radius: 0;
+    }
+    .message.user {
+        background-color: #d1ffd1;
+        color: #333;
+        float: right;
+        text-align: right;
+        border-bottom-right-radius: 0;
+    }
+    .message.thinking {
+        background-color: #eee;
+        color: #777;
+        float: left;
+        font-style: italic;
+        border-bottom-left-radius: 0;
+    }
+    #response-buttons {
+        text-align: center;
+        margin-top: 15px;
+        padding-top: 15px;
+        border-top: 1px solid #eee;
+    }
+    #response-buttons button {
+        margin: 0 10px;
+        padding: 12px 25px;
+        min-width: 80px;
+    }
+    #chat-loading, #chat-error {
+        text-align: center;
+        padding: 10px;
+        margin-top: 10px;
+        display: none; /* Hidden by default */
+    }
+    #chat-error { color: red; font-weight: bold; }
+    #chat-loading { color: #555; }
+    .chat-header { text-align: center; margin-bottom: 20px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="chat-header">
+    <h2>{{ analysis_type }} Assessment</h2>
+    <p>Please answer the following questions with 'Yes' or 'No'.</p>
+</div>
+
+<div id="chat-area">
+    <!-- Initial Question from Server -->
+    <div class="message bot" id="initial-question">{{ initial_question }}</div>
+    <!-- Chat history will be loaded here -->
+</div>
+
+<div id="chat-loading">Thinking...</div>
+<div id="chat-error"></div>
+
+<div id="response-buttons">
+    <button id="yes-button">Yes</button>
+    <button id="no-button">No</button>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+{{ super() }} {# Include scripts from layout.html - Firebase App/Auth are already included #}
+
+<script>
+    const analysisType = "{{ analysis_type }}";
+    // Use initial history from server, making sure it's a valid JS array
+    let chatHistory = {{ initial_history | tojson | safe }};
+
+    const chatArea = document.getElementById('chat-area');
+    const yesButton = document.getElementById('yes-button');
+    const noButton = document.getElementById('no-button');
+    const loadingIndicator = document.getElementById('chat-loading');
+    const errorDisplay = document.getElementById('chat-error');
+    const initialQuestionDiv = document.getElementById('initial-question');
+
+    // Function to add a message to the chat display
+    function addMessage(text, sender) {
+        const messageDiv = document.createElement('div');
+        messageDiv.classList.add('message', sender); // sender should be 'user' or 'bot' or 'thinking'
+        messageDiv.textContent = text;
+        chatArea.appendChild(messageDiv);
+        // Scroll to the bottom
+        chatArea.scrollTop = chatArea.scrollHeight;
+    }
+
+    // Function to disable/enable response buttons
+    function setButtonsDisabled(disabled) {
+        yesButton.disabled = disabled;
+        noButton.disabled = disabled;
+        yesButton.style.opacity = disabled ? 0.6 : 1;
+        noButton.style.opacity = disabled ? 0.6 : 1;
+        yesButton.style.cursor = disabled ? 'not-allowed' : 'pointer';
+        noButton.style.cursor = disabled ? 'not-allowed' : 'pointer';
+    }
+
+    // Function to show/hide loading indicator
+    function showLoading(show) {
+        loadingIndicator.style.display = show ? 'block' : 'none';
+    }
+
+     // Function to display errors
+    function showError(message) {
+        errorDisplay.textContent = message;
+        errorDisplay.style.display = message ? 'block' : 'none';
+    }
+
+    // Function to send response to the backend and get the next question
+    async function sendResponse(userResponse) {
+        showError(''); // Clear previous errors
+        setButtonsDisabled(true);
+        addMessage(userResponse, 'user');
+        addMessage("Thinking...", "thinking"); // Show thinking indicator in chat
+        showLoading(true);
+
+        // Update the last history entry with the user's response
+        if (chatHistory.length > 0 && 'model' in chatHistory[chatHistory.length - 1]) {
+            chatHistory[chatHistory.length - 1]['user'] = userResponse;
+        } else {
+            console.error("History structure error before sending response.", chatHistory);
+            // Handle error or attempt recovery if needed
+            chatHistory.push({ 'user': userResponse }); // Less ideal, might duplicate
+        }
+
+        try {
+            const response = await fetch('{{ url_for("api_chat") }}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    // Auth header will be added by Flask session or potentially client-side token
+                    // Since we rely on Flask session cookie, explicit header might not be needed here,
+                    // BUT it's good practice if token refresh could happen client-side.
+                    // Let's assume Flask session cookie handles auth for now.
+                    // If implementing client-side token refresh, add header here:
+                     // 'Authorization': `Bearer ${firebase.auth().currentUser.getIdToken()}`
+                },
+                body: JSON.stringify({
+                    analysis_type: analysisType,
+                    history: chatHistory,
+                    response: userResponse // Send the specific response too, backend might use it
+                })
+            });
+
+            // Remove the "Thinking..." message
+            const thinkingMessage = chatArea.querySelector('.message.thinking');
+            if (thinkingMessage) {
+                chatArea.removeChild(thinkingMessage);
+            }
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ error: `HTTP error ${response.status}` }));
+                throw new Error(errorData.error || `Request failed with status ${response.status}`);
+            }
+
+            const data = await response.json();
+            chatHistory = data.history; // Update history with the full history from backend
+            const nextQuestion = data.question;
+
+            addMessage(nextQuestion, 'bot');
+            setButtonsDisabled(false);
+            showLoading(false);
+
+        } catch (error) {
+            console.error('Error fetching next question:', error);
+            showError(`Error: ${error.message || "Could not get next question."}`);
+             // Remove the "Thinking..." message on error too
+            const thinkingMessage = chatArea.querySelector('.message.thinking');
+            if (thinkingMessage) {
+                chatArea.removeChild(thinkingMessage);
+            }
+            // Keep buttons disabled on error? Or enable to allow retry?
+            // Let's enable them to allow retry, but the error message should be prominent.
+             setButtonsDisabled(false); // Re-enable buttons maybe?
+             showLoading(false);
+            // Maybe add an error message in the chat area too?
+            // addMessage(`Sorry, an error occurred. Please try again. (${error.message})`, 'bot');
+        }
+    }
+
+    // Event Listeners for buttons
+    yesButton.addEventListener('click', () => sendResponse('Yes'));
+    noButton.addEventListener('click', () => sendResponse('No'));
+
+    // Initial setup
+    // Display initial question (already done via server render)
+    // Ensure initial state is correct
+    setButtonsDisabled(false);
+    showLoading(false);
+    showError('');
+    // Scroll to bottom initially
+    chatArea.scrollTop = chatArea.scrollHeight;
+
+    console.log("Chat interface initialized for", analysisType);
+    console.log("Initial History:", chatHistory);
+
+</script>
+{% endblock %}
