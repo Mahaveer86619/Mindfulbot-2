@@ -1,0 +1,1 @@
+This is the Readme for the mindfulot's web app. The web app will be in python, and the docker file will build it.

@@ -1,0 +1,1 @@
+This is the Readme for the mindfulot's server. The server will be in python, and the docker file will build it.
